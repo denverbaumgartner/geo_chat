@@ -1,9 +1,11 @@
+import json
 import logging
 from typing import Optional, Dict, List, Union
 
 import pandas as pd
 
-from subgrounds import Subgrounds, Subgraph, SyntheticField, FieldPath, Query, Field, ShallowStrategy, LegacyStrategy
+from subgrounds.pagination import ShallowStrategy, LegacyStrategy
+from subgrounds import Subgrounds, Subgraph, SyntheticField, FieldPath, query
 
 logger = logging.getLogger(__name__)
 
@@ -12,31 +14,77 @@ class SubgraphEntity:
     
     :param subgraph: An initialized subgraph object 
     :type subgraph: subgrounds.Subgraph 
+    :param subgrounds: An initialized Subgrounds object 
+    :type subgrounds: subgrounds.Subgrounds
     """
 
     def __init__(
         self, 
         subgraph: Subgraph,
+        subgrounds: Subgrounds,
     ) -> None: 
         
-        self.sg = subgraph # TODO: decide if we want to do schema validation as we already handle this within data.py
+        self.subgraph = subgraph 
+        self.subgrounds = subgrounds
 
     ################################################
     # Query Methods                                #
     ################################################
 
-    # def query_as_json
+    def query_as_json(
+        self, 
+        fields: List[Union[FieldPath, SyntheticField]],
+        column_names: Optional[Dict[str, str]] = None,
+        pagination_strategy: Optional[any] = ShallowStrategy,
+    ) -> Optional[Dict]: 
+        """A method to query the subgraph endpoint for triple entities and return them in a json format
+        
+        :param fields: The field to be returned from the entity
+        :type fields: List[Union[subgrounds.FieldPath, subgrounds.SyntheticField]]
+        :param column_names: A Dictionary that can be passed in to update column names
+        :type column_names: Optional[Dict[str, str]] = None
+        :param pagination_strategy: A pagination strategy to be used when querying the subgraph
+        :type pagination_strategy:Optional[any] = ShallowStrategy
+        """
+        
+        data = self.subgrounds.query_json(
+            fields, 
+            pagination_strategy=pagination_strategy # noqa
+        )
+
+        # Extracting data and restructuring
+        restructured_data = []
+        for item in data:
+            for key, values in item.items():
+                for value in values:
+                    new_dict = {
+                        'entity': value['entity']['name'],
+                        'attribute': value['attribute']['name'],
+                        'stringValue': value['stringValue']
+                    }
+                    restructured_data.append(new_dict)
+
+        # Convert restructured data back to JSON format
+        try: 
+            return json.dumps(restructured_data)
+        except: 
+            logger.warning(f"Failed when attempting to convert restructured data back to json format")
+            return None
 
     def query_as_pd(
         self, 
-        fields: List[Field | SyntheticField], #TODO: double check this is correct sytax 
+        fields: List[Union[FieldPath, SyntheticField]],
         column_names: Optional[Dict[str, str]] = None,
-        pagination_strategy: Optional[any] = ShallowStrategy, # TODO: validate, as you can create custom pagination strategies, that any is the best type here
-    ) -> Optional[pd.DataFrame]: # TODO: if not return none, change from optional 
+        pagination_strategy: Optional[any] = ShallowStrategy,
+    ) -> Optional[pd.DataFrame]: 
         """A method to query the subgraph endpoint for triple entities and return them in a pandas dataframe
         
         :param fields: The field to be returned from the entity
-        :par
+        :type fields: List[Union[subgrounds.FieldPath, subgrounds.SyntheticField]]
+        :param column_names: A Dictionary that can be passed in to update column names
+        :type column_names: Optional[Dict[str, str]] = None
+        :param pagination_strategy: A pagination strategy to be used when querying the subgraph
+        :type pagination_strategy:Optional[any] = ShallowStrategy
         """
         
         df = self.subgrounds.query_df(
@@ -45,28 +93,29 @@ class SubgraphEntity:
         )
 
         if df.empty: 
-            return df # TODO: decide if we want to return None, or initialize an empty df with the correct columns 
+            return df 
         
         if column_names:
-            df = df.rename(column_names) # TODO: validate this is the correct way to do this 
+            df = df.rename(columns=column_names) 
     
         return df
-        
-    # def query_as_pl # TODO: decide if it is worth supporting polars by default 
 
 class TripleEntity(SubgraphEntity): 
     """Helper object for querying Triples entities from the subgraph, extends the `SubgraphEntity` class
     
     :param subgraph: An initialized subgraph object 
     :type subgraph: subgrounds.Subgraph 
+    :param subgrounds: An initialized Subgrounds object 
+    :type subgrounds: subgrounds.Subgrounds
     """
 
     def __init__(
         self, 
         subgraph: Subgraph,
+        subgrounds: Subgrounds,
     ) -> None: 
 
-        super().__init__(subgraph=subgraph)
+        super().__init__(subgraph=subgraph, subgrounds=subgrounds)
 
         self.triple = self._intialize_triple()
 
@@ -77,7 +126,7 @@ class TripleEntity(SubgraphEntity):
     def _intialize_triple(self): 
         """Initialize the Subgraph triple object and add synthetic fields accordingly"""
 
-        triple = self.sg.Triple
+        triple = self.subgraph.Triple
 
         # add any relevant synthetic fields 
 
@@ -89,9 +138,9 @@ class TripleEntity(SubgraphEntity):
 
     def build_query(
         self, 
-        first: Optional[int] = 1000, # TODO: graph-node default first is typically 1000, if we could dynamically retrieve this value that would be great  
-        attribute_name: Optional[str] = None, # TODO: it would be nice to actually pass this as a list, that way we can filter on one, or many, attribute names
-    ) -> Query: # TODO: validate this is the correct return type 
+        first: Optional[int] = 1000,
+        attribute_name: Optional[str] = None, # TODO: #2
+    ) -> query:
         """A method to build the query for the triple entities
         
         :param first: The amount of entities to return, default 1000
@@ -101,18 +150,17 @@ class TripleEntity(SubgraphEntity):
         """
         
         # construct the triples query 
-        triples = self.sg.Query.triples(
+        triples = self.subgraph.Query.triples(
             first=first,
-            where={"attribute_": {"name": f"{attribute_name}"}} if attribute_name else None # TODO: because subgrounds does not currently permit relative form nested filtering, we must pass the `where` condition in `GraphQL` format, once this is resolved we should update this accordingly
-        )                                                                                   # TODO: open a ticket in subgrounds, or track a subgrounds ticket in this repo to update once the issue is resolved    
+            where={"attribute_": {"name": f"{attribute_name}"}} if attribute_name else {} # TODO: #1
+        )                                                                                 
 
         return triples
     
     @staticmethod
-    def get_fields(
-        triples: Query,
-    ) -> List[Field | SyntheticField]: #TODO: double check this is correct sytax 
-        # TODO: we may want to add in a query validation, this would be in line with the schema validation to ensure the query is for a `Triple`
+    def get_fields( # TODO: #4
+        triples: query,
+    ) -> List[Union[FieldPath, SyntheticField]]: 
         """A method to return relevant field paths to be included in the query for the triple entity.
         
         :param triples: The triples query object to be used 
@@ -122,14 +170,14 @@ class TripleEntity(SubgraphEntity):
         return [
             triples.entity.name, 
             triples.attribute.name,
-            triples.stringValue
+            triples.stringValue,
         ]
     
     @staticmethod
     def _field_name_corrections() -> Dict[str, str]: 
         """A helper method to reutrn back a dictionary to be used to rename dataframe columns given the class field paths."""
 
-        return {"stringValue": "string_value"}
+        return {"triples_stringValue": "string_value"}
     
     ################################################
     # Data Cleaning Methods                        #

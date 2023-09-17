@@ -1,1 +1,1 @@
-from subgraph_types import *
+from .subgraph_types import *

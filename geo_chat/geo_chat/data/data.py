@@ -7,7 +7,7 @@ import pandas as pd
 from subgrounds.pagination import ShallowStrategy
 from subgrounds import Subgrounds, Subgraph, SyntheticField
 
-from helpers import TripleEntity
+from .helpers import TripleEntity
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,11 @@ class GeoData:
         url: str,
     ) -> None:
 
-        self.sg = self._initialize_subgraph(url=url)
+        self.sg = Subgrounds()
+        self.geo = self._initialize_subgraph(url=url)
 
         # intitialize subgraph entities 
-        self.triple = TripleEntity(self.sg)
+        self.triple = TripleEntity(subgraph=self.geo, subgrounds=self.sg)
 
     ################################################
     # Subgraph Objects                             #
@@ -52,7 +53,7 @@ class GeoData:
 
         for attempt in range(attempts): 
             try: 
-                subgraph = self.subgrounds.load_subgraph(url=url)
+                subgraph = self.sg.load_subgraph(url=url)
                 break
             except Exception as e:
                 logger.debug(f"Exception loading subgraph: {e}")
@@ -63,13 +64,13 @@ class GeoData:
                 f"subgraph_url: {url} failed to load properly"
             )
         # else: 
-            # TODO: add a check to guarantee the schema matches the expected return value 
+            # TODO: #3
             # self._validate_schema(url)
         
         return subgraph
 
     # def _validate_schema(
-    #   self, schema_object # TODO: determine how subgrounds stores the schema object and if it is small enough to ship 
+    #   self, schema_object # TODO: #3
     # )
 
     ################################################
@@ -78,12 +79,12 @@ class GeoData:
 
     def query_triples(
         self, 
-        first: Optional[int] = 1000000000, # TODO: currently, there is no way to get an entity count from the subgraph. if this changes, we should attempt to dynamically set first from that value 
+        first: Optional[int] = 1000000000, 
         attribute_name: Optional[str] = None,
         column_names: Optional[Dict[str, str]] = None,
-        return_type: Optional[str] = "pd", # TODO: see if there is a clean way to define what string values are accepted 
+        return_type: Optional[str] = "pd", 
         pagination_strategy: Optional[any] = ShallowStrategy,
-    ) -> Optional[pd.DataFrame]: # TODO: as we add more possible data return types (json next) update this to be a Union
+    ) -> Optional[pd.DataFrame]: 
         """A method to query triples entities from the Geo subgraph
         
         :param first: The amount of entities to be returned from the query, defaults to 1,000,000,000
@@ -97,89 +98,28 @@ class GeoData:
         :param pagination_strategy: The pagination strategy to be used at time of query, allows for custom pagination strategies to be implemented
         :type pagination_strategy: Optional[any]
         """
+
+        VALID_RETURN_TYPES = {"pd", "json"}
+        
+        if return_type not in VALID_RETURN_TYPES:
+            logger.error(f"Invalid return_type. Accepted values are: {', '.join(VALID_RETURN_TYPES)}")
+            return None
         
         query = self.triple.build_query(first=first, attribute_name=attribute_name)
-        fields = self.triple.get_fields(query=query)
+        fields = self.triple.get_fields(triples=query)
 
-        # TODO: add a clean way to check that the passed in type is one we support
-        # i wonder if using "case" would be a cleaner way to do this? 
-        if return_type == 'pd': 
-            data =  self.triple.query_as_pd(
-                fields=fields, 
-                column_names=column_names if column_names else self.triple._field_name_corrections(), 
-                pagination_strategy=pagination_strategy
-            )
-            return self.triple.clean_pd(data)
-        else: 
-            logger.warning("Currently, this method only supports data returned as a pandas dataframe")
-
-
-'''query to return entites and their descriptions
-{
-  triples(where: {attribute_:{name:"Description"}}) {
-    entity {
-      name
-    }
-    attribute {
-      name
-    }
-    stringValue
-  }
-}
-'''
-
-'''
-{
-  geoEntities {
-    id
-    name
-    entityOf { # these are triples associated with an entity
-      id
-      attribute {
-        id
-        name
-      }
-      # etc.
-    }
-  }
-}
-'''
-
-
-''' example query where we get an entity, its attributes (tubples), and their attributes (tuples). this allows us to collect a description of the entity, and a description of its attributes. 
-{
-  geoEntities(where: {name:"Subgraph"}) {
-    id
-    name
-		entityOf {
-      attribute {
-        id
-        name
-      }
-      valueType
-      numberValue
-      stringValue
-      arrayValue
-      entityValue {
-        id
-        name
-        entityOf {
-          attribute {
-            id
-            name
-          }
-          valueType
-          valueId
-          numberValue
-          stringValue
-          arrayValue
-          entity {
-            id
-            name
-          }
-        }
-      }
-    }
-  }
-}
-'''
+        match return_type:
+            case "pd":
+                data =  self.triple.query_as_pd(
+                    fields=fields, 
+                    column_names=column_names if column_names else self.triple._field_name_corrections(), 
+                    pagination_strategy=pagination_strategy
+                )
+                return self.triple.clean_pd(data)
+            
+            case "json": 
+                return self.triple.query_as_json(
+                    fields=fields, 
+                    column_names=column_names if column_names else self.triple._field_name_corrections(), 
+                    pagination_strategy=pagination_strategy
+                )
