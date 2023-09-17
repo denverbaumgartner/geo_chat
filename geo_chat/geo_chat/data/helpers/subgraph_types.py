@@ -27,6 +27,10 @@ class SubgraphEntity:
         self.subgraph = subgraph 
         self.subgrounds = subgrounds
 
+    def __repr__(self):
+        items = ("{}={!r}".format(k, self.__dict__[k]) for k in self.__dict__)
+        return "{}({})".format(type(self).__name__, ", ".join(items))
+
     ################################################
     # Query Methods                                #
     ################################################
@@ -118,6 +122,10 @@ class TripleEntity(SubgraphEntity):
         super().__init__(subgraph=subgraph, subgrounds=subgrounds)
 
         self.triple = self._intialize_triple()
+
+    def __repr__(self):
+        items = ("{}={!r}".format(k, self.__dict__[k]) for k in self.__dict__)
+        return "{}({})".format(type(self).__name__, ", ".join(items))
 
     ################################################
     # Subgraph Objects                             #

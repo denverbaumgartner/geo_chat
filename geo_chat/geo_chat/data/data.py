@@ -32,6 +32,10 @@ class GeoData:
         # intitialize subgraph entities 
         self.triple = TripleEntity(subgraph=self.geo, subgrounds=self.sg)
 
+    def __repr__(self):
+        items = ("{}={!r}".format(k, self.__dict__[k]) for k in self.__dict__)
+        return "{}({})".format(type(self).__name__, ", ".join(items))
+
     ################################################
     # Subgraph Objects                             #
     ################################################
